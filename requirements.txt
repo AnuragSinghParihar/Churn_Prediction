@@ -1,8 +1,25 @@
-streamlit>=1.28.0
-altair>=5.0.0
-pandas
-numpy
-scikit-learn
-joblib
-matplotlib
-seaborn
+# Core ML & data
+numpy==1.26.4
+pandas==2.2.1
+scikit-learn==1.4.2
+joblib==1.3.2
+
+# Web app
+streamlit==1.32.2
+altair==5.3.0
+
+# Visualisation
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Testing
+pytest==8.1.1
+
+# Agent: LLM client
+anthropic>=0.40.0
+
+# Agent: PDF export
+reportlab>=4.0.0
+
+# Optional: dataset download
+# kaggle==1.6.14

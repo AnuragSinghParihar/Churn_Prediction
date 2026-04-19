@@ -1,63 +1,101 @@
 # Player Churn Prediction System
 
-This repository contains an end-to-end data mining and machine learning project focused on predicting player churn for online gaming platforms. The project pipeline includes data preprocessing, feature engineering, and evaluating multiple classification models, specifically Logistic Regression and Decision Tree models.
+An end-to-end ML web app that predicts player churn risk for online gaming platforms — powered by Logistic Regression and Decision Tree models trained on 40 000+ records, with an AI-powered engagement optimizer built on top.
 
-It features an interactive web application built with Streamlit that allows users to upload gaming behavior datasets, dynamically process the data, and predict the churn probability and risk level for individual players.
+> **Live Demo:** _add Streamlit Cloud link here_
 
-## Repository Structure
-
-The project repository follows the structure shown below:
-
-```text
-Churn Prediction/
-|-- data/
-|   |-- online_gaming_behavior_dataset.csv
-|-- models/
-|   |-- decision_tree.pkl
-|   |-- feature_names.pkl
-|   |-- label_encoders.pkl
-|   |-- logistic_regression.pkl
-|   |-- scalers.pkl
-|-- notebooks/
-|-- src/
-|   |-- download_data.py
-|   |-- preprocess.py
-|   |-- train.py
-|-- app.py
-|-- report.tex
-|-- requirements.txt
-```
-
-## Description of Key Components
-
-*   **data/**: Contains the raw dataset `online_gaming_behavior_dataset.csv`.
-*   **models/**: Trained models and serialized preprocessing objects like scalers and encoders.
-*   **notebooks/**: Jupyter Notebooks for preprocessing, model training, and evaluation.
-*   **src/**: Python source code for data downloading, preprocessing, and model training.
-*   **app.py**: Main application script for the Streamlit web interface.
-*   **report.tex**: LaTeX source code for the project report in IEEE format.
-*   **requirements.txt**: Exact Python dependencies required to run the application.
-
-## Getting Started
-
-1.  **Clone the Repository** and navigate to the project root directory.
-
-2.  **Install Dependencies**: Install the necessary Python packages using pip:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Run the Streamlit Application**: Launch the interactive web app to test predictions:
-    ```bash
-    streamlit run app.py
-    ```
+---
 
 ## Features
 
-*   Upload raw CSV data directly via the UI.
-*   Automatic handling of missing values and categorical encoding.
-*   Model selection toggle (Logistic Regression vs. Decision Tree).
-*   Dynamic risk assessment table (Low, Medium, High risk) sorted with corresponding probabilities.
-*   Visual distribution of user risk profiles using Seaborn.
-*   Feature importance visualizer for the Decision Tree model.
-*   Downloadable result datasets.
+- Upload player CSV → get churn probability, risk tier (Low/Medium/High), and downloadable results
+- Two models: Logistic Regression and Decision Tree
+- AI Agent tab: personalized engagement recommendations via Claude Haiku
+- PDF + JSON report export
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/<your-username>/Churn_Prediction.git
+cd Churn_Prediction
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+For the AI Agent, set your Anthropic API key first:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+---
+
+## Project Structure
+
+```
+├── app.py                  # Streamlit entry point
+├── src/
+│   ├── preprocessing.py    # Feature encoding & imputation
+│   ├── inference.py        # Model loading & prediction
+│   ├── train.py            # Training pipeline (CV + metrics)
+│   └── ui.py               # Streamlit UI components
+├── agent/
+│   ├── pipeline.py         # 6-stage agentic pipeline
+│   ├── knowledge_base.py   # Retention strategy retrieval
+│   ├── llm.py              # Claude Haiku integration
+│   └── export.py           # PDF report generation
+├── pages/
+│   └── 2_Agent_Optimizer.py # Agent Streamlit page
+├── tests/                  # 44 unit tests
+├── models/                 # Trained model artefacts
+├── data/                   # Dataset (download from Kaggle)
+└── reports/report.tex      # LaTeX project report
+```
+
+---
+
+## Retrain Models
+
+```bash
+python -m src.train
+```
+
+Saves updated models and `models/evaluation_metrics.json` with CV scores and feature importances.
+
+---
+
+## Run Tests
+
+```bash
+pytest tests/ -v
+```
+
+---
+
+## Input Schema
+
+CSV must include these 11 columns (missing values auto-imputed):
+
+| Column | Type | Values |
+|--------|------|--------|
+| `Age` | int | 18–60 |
+| `Gender` | str | Male / Female |
+| `Location` | str | USA / Europe / Asia / Other |
+| `GameGenre` | str | Action / RPG / Simulation / Sports / Strategy |
+| `PlayTimeHours` | float | ≥ 0 |
+| `InGamePurchases` | int | 0 or 1 |
+| `GameDifficulty` | str | Easy / Medium / Hard |
+| `SessionsPerWeek` | int | ≥ 0 |
+| `AvgSessionDurationMinutes` | float | ≥ 0 |
+| `PlayerLevel` | int | ≥ 1 |
+| `AchievementsUnlocked` | int | ≥ 0 |
+
+---
+
+## Deployment
+
+**Streamlit Cloud:** Push to GitHub → [share.streamlit.io](https://share.streamlit.io) → select `app.py` → Deploy.
+
+Add `ANTHROPIC_API_KEY` in the Streamlit Cloud secrets panel for the AI agent.

@@ -1,107 +1,169 @@
-import streamlit as st
+"""
+app.py — Player Churn Prediction: Streamlit application entry point.
+
+Run with:
+    streamlit run app.py
+
+Architecture:
+  app.py          → orchestration only (page config, routing)
+  src/ui.py       → all Streamlit visual components
+  src/inference.py → model loading and prediction logic
+  src/preprocessing.py → data cleaning and feature encoding
+"""
+
 import pandas as pd
-import numpy as np
-import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
+import streamlit as st
 
-st.set_page_config(page_title="Intelligent Player Churn Prediction System", layout="wide")
+from src.inference import load_evaluation_metrics, load_models, predict
+from src.preprocessing import preprocess
+from src import ui
 
-st.markdown("""
+# ── Page configuration ────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="Player Churn Prediction",
+    page_icon="🎮",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
     <style>
-    .main {background-color: #f5f5f5;}
-    h1 {color: #2c3e50; text-align: center;}
-    .stButton>button {color: white; background-color: #e74c3c;}
+    .main { background-color: #f8f9fa; }
+    h1 { color: #2c3e50; }
+    .stMetric { background: #ffffff; border-radius: 8px; padding: 0.5rem; }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-@st.cache_resource
-def load_assets():
+
+# ── Cached resource loading ───────────────────────────────────────────────────
+
+@st.cache_resource(show_spinner="Loading models ...")
+def _load_models():
+    """Load models once per server session; cache across browser tabs."""
+    return load_models()
+
+
+@st.cache_data(show_spinner=False)
+def _load_metrics():
+    """Load evaluation metrics once; cached until file changes."""
+    return load_evaluation_metrics()
+
+
+# ── App layout ────────────────────────────────────────────────────────────────
+
+ui.render_header()
+ui.render_pipeline_overview()
+
+uploaded_file, model_name = ui.render_sidebar()
+
+# Load models — abort early on failure so the rest of the app stays clean
+try:
+    log_model, dt_model, scaler, label_encoders, feature_names = _load_models()
+except Exception as exc:
+    st.error(
+        f"**Model loading failed:** {exc}\n\n"
+        "Run `python -m src.train` to retrain and save models."
+    )
+    st.stop()
+
+# ── Main prediction flow ──────────────────────────────────────────────────────
+
+if uploaded_file is not None:
     try:
-        return joblib.load('models/logistic_regression.pkl'), joblib.load('models/decision_tree.pkl'), joblib.load('models/scalers.pkl'), joblib.load('models/label_encoders.pkl')
-    except Exception as e:
-        st.error(f"Model files missing: {e}")
-        return None, None, None, None
+        df = pd.read_csv(uploaded_file)
 
-log_model, dt_model, scaler, les = load_assets()
+        # ── Step 1: Preprocessing ────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("1. Data Processing")
+        X_scaled, X_encoded = preprocess(df, label_encoders, scaler)
+        st.success(
+            f"Processed **{len(df):,} players** — "
+            "missing values imputed, categorical features encoded."
+        )
 
-def process(df, les, scaler):
-    df_p = df.copy()
-    for col in df_p.select_dtypes(include=np.number).columns: df_p[col].fillna(df_p[col].mean(), inplace=True)
-    for col in df_p.select_dtypes(include='object').columns: df_p[col].fillna(df_p[col].mode()[0], inplace=True)
-    
-    req = ['Age', 'Gender', 'Location', 'GameGenre', 'PlayTimeHours', 'InGamePurchases', 'GameDifficulty', 'SessionsPerWeek', 'AvgSessionDurationMinutes', 'PlayerLevel', 'AchievementsUnlocked']
-    if set(req) - set(df_p.columns): return None
-    df_p = df_p[req]
+        # ── Step 2: Prediction ───────────────────────────────────────────────
+        st.subheader("2. Predictions")
+        model = log_model if model_name == "Logistic Regression" else dt_model
+        X_input = X_scaled if model_name == "Logistic Regression" else X_encoded
 
-    for col in ['Gender', 'Location', 'GameGenre', 'GameDifficulty']:
-        if col in df_p:
-            le = les.get(col)
-            if le:
-                df_p.loc[~df_p[col].isin(le.classes_), col] = le.classes_[0]
-                df_p[col] = le.transform(df_p[col])
+        results = predict(model, X_input)
+
+        player_ids = (
+            df["PlayerID"].values
+            if "PlayerID" in df.columns
+            else range(1, len(df) + 1)
+        )
+        results_df = pd.DataFrame(
+            {
+                "PlayerID": player_ids,
+                "Prediction": results["prediction"],
+                "ChurnProbability": results["churn_prob"],
+                "ChurnRisk": results["risk"],
+            }
+        )
+
+        ui.render_metrics_cards(results_df)
+
+        # ── Step 3: Results table ────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("3. Player Risk Table")
+        ui.render_results_table(results_df)
+
+        # ── Step 4: Visualisations ───────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("4. Visualisations")
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            ui.render_risk_distribution(results_df)
+
+        with col_right:
+            if model_name == "Decision Tree":
+                imp_df = pd.DataFrame(
+                    {
+                        "feature": feature_names,
+                        "importance": model.feature_importances_,
+                    }
+                ).sort_values("importance", ascending=False)
+                ui.render_feature_importance(imp_df)
             else:
-                df_p[col] = pd.factorize(df_p[col])[0]
+                st.info(
+                    "Feature importance is available when the **Decision Tree** "
+                    "model is selected."
+                )
 
-    return scaler.transform(df_p), df_p
+        # ── Step 5: Evaluation metrics ───────────────────────────────────────
+        st.markdown("---")
+        st.subheader("5. Model Evaluation Metrics")
+        eval_metrics = _load_metrics()
+        if eval_metrics:
+            model_key = (
+                "logistic_regression"
+                if model_name == "Logistic Regression"
+                else "decision_tree"
+            )
+            ui.render_evaluation_metrics(eval_metrics, model_key)
+        else:
+            st.info(
+                "Evaluation metrics not yet generated. "
+                "Run `python -m src.train` to produce them."
+            )
 
-st.title("Player Churn Prediction System")
-st.markdown("### Process Overview")
-st.write("1. **Data Upload**: User provides a CSV file.")
-st.write("2. **Preprocessing**: Missing values are imputed, and categorical features are encoded.")
-st.write("3. **Prediction**: The selected model predicts churn probability.")
-st.write("4. **Risk Assessment**: Players are categorized as Low (<30%), Medium (30-70%), or High (>70%) risk.")
+        # ── Step 6: Download ─────────────────────────────────────────────────
+        st.markdown("---")
+        ui.render_download_button(results_df)
 
+    except ValueError as exc:
+        st.error(f"**Data validation error:** {exc}")
+        ui.render_schema_help()
+    except Exception as exc:
+        st.error(f"**Unexpected error:** {exc}")
+        st.exception(exc)
 
-with st.sidebar:
-    st.header("Upload Data")
-    f = st.file_uploader("Upload CSV", type=["csv"])
-    m = st.selectbox("Model", ["Logistic Regression", "Decision Tree"])
-
-if f:
-    try:
-        df = pd.read_csv(f)
-        if log_model and dt_model:
-            st.markdown("---")
-            st.subheader("1. Data Processing")
-            X_s, X_us = process(df, les, scaler)
-            st.success("Data processed successfully! Imputed missing values and encoded categorical features.")
-            
-            if X_s is not None:
-                st.subheader("2. Prediction & Risk Assessment")
-                mod = log_model if m == "Logistic Regression" else dt_model
-                inp = X_s if m == "Logistic Regression" else X_us
-                
-                pred = mod.predict(inp)
-                prob = mod.predict_proba(inp)[:, 1]
-                
-                res = df[['PlayerID']].copy() if 'PlayerID' in df else df.reset_index()[['index']].rename(columns={'index': 'PlayerID'})
-                res['Churn'], res['Prob'] = pred, prob
-                res['Risk'] = ['Low' if p < 0.3 else 'Medium' if p <= 0.7 else 'High' for p in prob]
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total", len(res))
-                c2.metric("High Risk", len(res[res['Risk'] == 'High']))
-                c3.metric("Avg Prob", f"{prob.mean():.2%}")
-                
-                def highlight_risk(val):
-                    bg_color = '#d4edda' if val == 'Low' else '#fff3cd' if val == 'Medium' else '#f8d7da'
-                    text_color = '#155724' if val == 'Low' else '#856404' if val == 'Medium' else '#721c24'
-                    return f'background-color: {bg_color}; color: {text_color}; font-weight: bold'
-                
-                styled_df = res.style.format({'Prob': '{:.2%}'}).applymap(highlight_risk, subset=['Risk'])
-                st.dataframe(styled_df)
-                fig, ax = plt.subplots()
-                v = res['Risk'].value_counts()
-                sns.barplot(x=v.index, y=v.values, palette={"Low": "green", "Medium": "orange", "High": "red"}, ax=ax)
-                st.pyplot(fig)
-                
-                if m == "Decision Tree":
-                    imp = pd.DataFrame({'Feat': X_us.columns, 'Imp': mod.feature_importances_}).sort_values('Imp', ascending=False).head(5)
-                    fig2, ax2 = plt.subplots()
-                    sns.barplot(x='Imp', y='Feat', data=imp, ax=ax2)
-                    st.pyplot(fig2)
-                
-                st.download_button("Download", res.to_csv(index=False).encode('utf-8'), "pred.csv", "text/csv")
-    except Exception as e: st.error(f"Error: {e}")
-else: st.info("Upload CSV.")
+else:
+    st.info("Upload a player-data CSV in the sidebar to get started.")
+    ui.render_schema_help()
